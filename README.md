@@ -3,7 +3,6 @@
 **SubSketch** generates high-quality, publication-ready visualizations of biosynthetic gene clusters (BGCs) with seamless **ClusterClue** integration. It produces both **SVG figures** and **HTML reports** to help you explore and present **subcluster motifs** and relationships across BGCs.
 
 Use SubSketch to create clear, customizable graphics that highlight:
-
 * BGC layouts with CDS features and domain architecture
 * Subcluster motif hits with gene-specific highlighting
 * Weight matrices (positive/negative contributions)
