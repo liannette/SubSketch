@@ -1,7 +1,7 @@
-from subsketch.bgc import draw_bgc, draw_subcluster_hit, draw_annotated_subcluster
-from subsketch.motif import plot_subcluster_motif
+from subsketch.draw.bgc import draw_bgc, draw_subcluster_hit, draw_annotated_subcluster
+from subsketch.draw.motif import plot_subcluster_motif
+from subsketch.draw.molecule import draw_compounds, draw_compounds_with_substruct_flexible
 from subsketch.loaders import load_bgc
-from subsketch.molecule import draw_compounds, draw_compounds_with_substruct_flexible
 
 
 def _html_head():
@@ -103,8 +103,9 @@ def generate_html_for_motif(
     domains, 
     domain_colors, 
     motifs, 
-    compounds_info=None, 
+    compounds_info, 
     scaling=30, 
+    include_compound_plots=True,
     include_motif_plots=True
 ):
     
@@ -116,7 +117,7 @@ def generate_html_for_motif(
         bgc_id = motif_hit['bgc_id']
         html_content += _subcluster_title(motif_hit)
 
-        if compounds_info:
+        if include_compound_plots:
             bgc_compounds = compounds_info.get(bgc_id, [])
             compounds_svg = draw_compounds(bgc_compounds)
             html_content += f"<div>{compounds_svg}</div>"

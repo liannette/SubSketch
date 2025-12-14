@@ -124,7 +124,8 @@ def read_txt(infile_path: str) -> List[str]:
     Returns:
         list of str: A list of lines from the file, with leading and trailing whitespace removed.
     """
-    return [line.strip() for line in open(infile_path, "r")]
+    with open(infile_path, "r") as infile:
+        return [line.strip() for line in infile]
 
 
 def read_detected_motifs(filename):
@@ -162,15 +163,14 @@ def read_compounds(compounds_filepath):
 
 def read_motifs(motifs_file):
     subcluster_motifs = dict()
-    infile = open(motifs_file, "r")
-    while True:
-        # read 4 lines at a time
-        lines = [infile.readline().rstrip() for _ in range(4)]
-        # stop it end of file
-        if not lines[0]:
-            break
-        # add subcluster motif
-        motif = Motif.from_lines(lines)
-        subcluster_motifs[motif.motif_id] = motif
-    infile.close()
+    with open(motifs_file, "r") as infile:
+        while True:
+            # read 4 lines at a time
+            lines = [infile.readline().rstrip() for _ in range(4)]
+            # stop it end of file
+            if not lines[0]:
+                break
+            # add subcluster motif
+            motif = Motif.from_lines(lines)
+            subcluster_motifs[motif.motif_id] = motif
     return subcluster_motifs

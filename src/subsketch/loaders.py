@@ -1,4 +1,3 @@
-
 from subsketch.classes import CodingSequence
 from subsketch.io import read_bgc_gbk
 

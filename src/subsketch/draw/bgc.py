@@ -3,7 +3,7 @@
 from math import atan2, pi, sin
 from colorsys import hsv_to_rgb, rgb_to_hsv
 
-from subsketch.config import (
+from subsketch.draw.config import (
     internal_domain_margin,
     domain_contour_thickness,
     gene_contour_thickness,
@@ -373,7 +373,7 @@ def draw_bgc(
     bgc_domain_hits=dict(),
     domain_colors=dict(),
     color_genes=True,
-    color_domains=True,
+    color_domains=False,
     H=30,
     h=5,
     l=12,  # noqa: E741
@@ -490,6 +490,7 @@ def draw_subcluster_hit(
     bgc_domain_hits,
     domain_colors,
     motif_hit,
+    color_genes=False,
     H=30,
     h=5,
     l=12,  # noqa: E741
@@ -504,13 +505,15 @@ def draw_subcluster_hit(
         if _get_tokenized_gene(domains) in motif_hit["genes"]:
             highlighted_cds.add(cds.orf_num)
 
+    color_domains = False if color_genes else True
+
     svg_text = draw_bgc(
         bgc_data=bgc_data,
         highlighted_cds=highlighted_cds,
         bgc_domain_hits=bgc_domain_hits,
         domain_colors=domain_colors,
-        color_genes=False,
-        color_domains=True,
+        color_genes=color_genes,
+        color_domains=color_domains,
         H=H,
         h=h,
         l=l,
