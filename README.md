@@ -37,7 +37,7 @@ with open("bgc_report.html", "w") as f:
     f.write(html)
 ```
 
-See `notebook/` folder for detailed workflows.
+See `examples/` folder for detailed workflows.
 
 ## 📦 Installation
 
