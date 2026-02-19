@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-
+from importlib.resources import files
 from subsketch import io, loaders
 from subsketch.reports import generate_html_report_for_bgc, generate_html_for_motif
 
@@ -42,12 +42,15 @@ class SubSketchSession:
         self.motif_hits_file = Path(motif_hits_file)
         self.motifs_file = Path(motifs_file)
         self.compounds_file = Path(compounds_file) if compounds_file else None
-        self.domain_colors_file = Path(domain_colors_file) if domain_colors_file else None
+        if domain_colors_file:
+            self.domain_colors_file = Path(domain_colors_file) 
+        else:
+            self.domain_colors_file = Path(files("subsketch").joinpath("data")).joinpath("domain_colors.txt")
 
         self.data: Optional[GlobalData] = None
 
     def load(self) -> None:
-        """Load all data required for any BGC in the dataset."""
+        """Load all data."""
         # BGCs: {bgc_id: {"id", "cds_features", "length", "record", ...}}
         bgcs: Dict[str, dict] = {}
         for gbk_path in sorted(self.genbank_dir.glob("*.gbk")):
@@ -58,7 +61,12 @@ class SubSketchSession:
         bgc2hits, motif2hits = io.read_detected_motifs(self.motif_hits_file)
         motifs = io.read_motifs(self.motifs_file)
         compounds = io.read_compounds(self.compounds_file) if self.compounds_file else {}
-        domain_colors = io.read_color_domains_file(self.domain_colors_file)
+
+        domain_colors = loaders.load_domain_colors(self.domain_colors_file)
+        new_colors = loaders.new_domain_colors(domain_hits, domain_colors)
+        if new_colors:
+            domain_colors.update(new_colors)
+            io.write_domain_colors(domain_colors, self.domain_colors_file)
 
         self.data = GlobalData(
             bgcs=bgcs,
@@ -80,6 +88,7 @@ class SubSketchSession:
         self,
         bgc_id: str,
         gene_arrow_scaling: int = 30,
+        include_title: bool = True,
         include_bgc_plot: bool = True,
         include_compound_plots: bool = True,
         include_motif_plots: bool = True,
@@ -101,6 +110,7 @@ class SubSketchSession:
             motifs=self.data.motifs,
             domain_colors=self.data.domain_colors,
             scaling=gene_arrow_scaling,
+            include_title=include_title,
             include_motif_plots=include_motif_plots,
             include_bgc_plot=include_bgc_plot,
             include_compound_plots=include_compound_plots,
@@ -110,6 +120,7 @@ class SubSketchSession:
         self,
         motif_id: str,
         gene_arrow_scaling: int = 30,
+        include_title: bool = True,
         include_compound_plots: bool = True,
         include_motif_plots: bool = True,
     ) -> str:
@@ -130,6 +141,7 @@ class SubSketchSession:
             motifs=self.data.motifs,
             compounds_info=self.data.compounds,
             scaling=gene_arrow_scaling,
+            include_title=include_title,
             include_motif_plots=include_motif_plots,
             include_compound_plots=include_compound_plots,
         )

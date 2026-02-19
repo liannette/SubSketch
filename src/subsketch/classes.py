@@ -76,7 +76,10 @@ class Motif:
     @classmethod
     def from_lines(cls, lines: List[str]) -> "Motif":
         """Parse motif from 4-line format."""
-        motif_id, n_matches, threshold = re.findall(r"\d+\.\d+|\d+", lines[0])
+        match = re.search(r"#motif:\s*(\w+),\s*n_matches:\s*(\d+),\s*threshold:\s*([-]?\d+\.?\d*)", lines[0])
+        if not match:
+            raise ValueError(f"Invalid motif header format: {lines[0]}")
+        motif_id, n_matches, threshold = match.groups()
 
         # Parse genes and weights
         tokenized_genes = lines[1].strip().split()

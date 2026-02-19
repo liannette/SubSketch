@@ -7,3 +7,5 @@ __pycache__/
 # Setuptools / packaging
 *.egg-info/
 src/subsketch.egg-info/
+
+build/

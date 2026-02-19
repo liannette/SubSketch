@@ -2,13 +2,14 @@
 
 from math import atan2, pi, sin
 from colorsys import hsv_to_rgb, rgb_to_hsv
-
+from subsketch.utils import extract_domain_base_name
 from subsketch.draw.config import (
     internal_domain_margin,
     domain_contour_thickness,
     gene_contour_thickness,
     stripe_thickness,
 )
+
 
 def _get_gene_coordinates(X, Y, L, l, H, h, strand):  # noqa: E741
     """
@@ -314,10 +315,10 @@ def draw_arrow(
 
     domain_height = int(H - 2 * internal_domain_margin)
     for domain in domain_list:
-        domain_accession = domain["accession"]
+        domain_base_acc = extract_domain_base_name(domain["accession"])
         domain_start = int(domain["start"] / scaling)
         domain_width = int(domain["width"] / scaling)
-        domain_fill_rgb = domain_colors[domain_accession]
+        domain_fill_rgb = domain_colors[domain_base_acc]
         domain_stroke_rgb = _get_domain_stroke_rgb(domain_fill_rgb)
         domain_points = _get_domain_coordinates(
             domain_start,

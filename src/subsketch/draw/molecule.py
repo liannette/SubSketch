@@ -9,12 +9,19 @@ def draw_mols_to_grid(mols, names, highlight_atoms_list=None, highlight_bonds_li
     if highlight_bonds_list is None:
         highlight_bonds_list = [[] for _ in mols]
 
+    if len(mols) != len(names):
+        print("Warning: Mismatch in number of molecules and names or empty molecule list.")
+        print(names)
+    if len(mols) == 0:
+        print("Warning: Empty molecule list provided to draw_mols_to_grid.")
+        print(names)
 
+        
     draw_options = rdMolDraw2D.MolDrawOptions()
     draw_options.useBWAtomPalette()  # Enable black-and-white palette
-    svg_obj = Draw.MolsToGridImage(
+    svg = Draw.MolsToGridImage(
         mols, 
-        molsPerRow=len(mols), 
+        molsPerRow=len(mols) if mols else 1, 
         subImgSize=(int(200 * scaling), int(200 * scaling)), 
         legends=names, 
         useSVG=True,
@@ -23,7 +30,10 @@ def draw_mols_to_grid(mols, names, highlight_atoms_list=None, highlight_bonds_li
         drawOptions=draw_options,
         returnPNG=False  # Ensure SVG mode
     )
-    return svg_obj._repr_svg_()
+    if isinstance(svg, str):
+        return svg  # Plain script: return raw SVG string
+    else:
+        return svg._repr_svg_()  # Jupyter: return display method
 
 
 def draw_compounds(compounds, show_names=True, scaling=1.0):

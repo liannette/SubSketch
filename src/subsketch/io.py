@@ -4,47 +4,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import List
 from Bio import SeqIO
-from importlib.resources import files
 
 from subsketch.classes import Motif
-
-def read_color_domains_file(domains_color_file=None):
-    """
-    Reads and parses a color domains file.
-
-    This function reads a tab-delimited file containing domain names and their
-    associated RGB color values. Each line in the file should contain a domain
-    name followed by a comma-separated RGB value.
-
-    Args:
-        domains_color_file (str): Path to the domains color file.
-
-    Returns:
-        dict: A dictionary mapping domain accessions (str) to RGB color values (list of 3 integers).
-
-    Raises:
-        SystemExit: If the specified file does not exist.
-
-    Example format of domains_color_file:
-        Domain1    255,0,0
-        Domain2    0,255,0
-        Domain3    0,0,255
-    """
-    if domains_color_file is None:
-        data_dir = Path(files("subsketch").joinpath("data"))
-        domains_color_file = data_dir.joinpath("domain_colors.txt")
-
-    if not Path(domains_color_file).is_file():
-        sys.exit(f"Error: Domains colors file was not found: {domains_color_file}")
-
-    domain_colors = dict()
-    with open(domains_color_file, "r") as f:
-        reader = csv.reader(f, delimiter="\t")
-        for row in reader:
-            domain_accession = row[0]
-            rgb = [int(val) for val in row[1].split(",")]
-            domain_colors[domain_accession] = rgb
-    return domain_colors
 
 
 def read_domain_hits(dom_hits_file):
@@ -137,10 +98,10 @@ def read_detected_motifs(filename):
             hit = {
                 "motif_id": row["motif_id"],
                 "bgc_id": row["bgc_id"],
-                "n_training": int(row["n_training"]),
+                "n_training": int(row["n_training_matches"]),
                 "threshold": row["score_threshold"],
                 "score": row["score"],
-                "genes": row["genes"].split(","),
+                "genes": row["hit_genes"].split(","),
             }
             bgc2hits[row["bgc_id"]].append(hit)
             motif2hits[row["motif_id"]].append(hit)
@@ -174,3 +135,11 @@ def read_motifs(motifs_file):
             motif = Motif.from_lines(lines)
             subcluster_motifs[motif.motif_id] = motif
     return subcluster_motifs
+
+
+def write_domain_colors(domain_colors, out_file):
+    with open(out_file, "w") as f:
+        writer = csv.writer(f, delimiter="\t")
+        for domain_accession, rgb in sorted(domain_colors.items()):
+            rgb_str = ",".join(str(val) for val in rgb)
+            writer.writerow([domain_accession, rgb_str])
