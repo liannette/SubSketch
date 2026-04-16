@@ -427,7 +427,7 @@ def draw_bgc(
     color_fill_as = {
         "biosynthetic": (129, 14, 21),
         "biosynthetic-additional": (241, 109, 117),
-        "transport": (241, 109, 117),
+        "transport": (100, 149, 236),
         "regulatory": (46, 139, 87),
         "other": (128, 128, 128),
     }
