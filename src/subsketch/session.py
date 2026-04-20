@@ -92,6 +92,7 @@ class SubSketchSession:
         include_bgc_plot: bool = True,
         include_compound_plots: bool = True,
         include_motif_plots: bool = True,
+        motif_reports_base_url: str = None,
     ) -> str:
         """Generate an HTML report for a single BGC ID."""
         if self.data is None:
@@ -114,6 +115,7 @@ class SubSketchSession:
             include_motif_plots=include_motif_plots,
             include_bgc_plot=include_bgc_plot,
             include_compound_plots=include_compound_plots,
+            motif_reports_base_url=motif_reports_base_url,
         )
     
     def html_report_for_motif(
@@ -123,6 +125,7 @@ class SubSketchSession:
         include_title: bool = True,
         include_compound_plots: bool = True,
         include_motif_plots: bool = True,
+        bgc_reports_base_url: str = None,
     ) -> str:
         """Generate an HTML report for a single motif ID."""
         if self.data is None:
@@ -144,4 +147,98 @@ class SubSketchSession:
             include_title=include_title,
             include_motif_plots=include_motif_plots,
             include_compound_plots=include_compound_plots,
+            bgc_reports_base_url=bgc_reports_base_url,
         )
+
+    def generate_all_reports_with_master_index(
+        self,
+        output_dir: str | Path,
+        gene_arrow_scaling: int = 60,
+        include_compound_plots: bool = True,
+        include_motif_plots: bool = True,
+    ) -> None:
+        """Generate all reports (BGC, Motif) with a master index page.
+        
+        Args:
+            output_dir: Base directory to write all reports
+            gene_arrow_scaling: Scaling factor for gene arrows
+            include_compound_plots: Whether to include compound visualizations
+            include_motif_plots: Whether to include motif plots
+        """
+        from subsketch.reports import generate_master_index_html
+        
+        if self.data is None:
+            raise RuntimeError("Session not loaded. Call .load() first.")
+        
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Define subdirectories
+        bgc_dir = output_dir / "bgc_reports"
+        motif_dir = output_dir / "motif_reports"
+        
+        # Generate BGC reports
+        bgc_dir.mkdir(parents=True, exist_ok=True)
+        bgc_index_entries = []
+        
+        for idx, bgc_id in enumerate(self.data.bgcs.keys(), 1):
+            html_content = self.html_report_for_bgc(
+                bgc_id=bgc_id,
+                gene_arrow_scaling=gene_arrow_scaling,
+                include_compound_plots=include_compound_plots,
+                include_motif_plots=include_motif_plots,
+                motif_reports_base_url="../motif_reports",
+            )
+            
+            output_file = bgc_dir / f"{bgc_id}.html"
+            with open(output_file, "w") as f:
+                f.write(html_content)
+            
+            motif_hits = self.data.bgc2hits.get(bgc_id, [])
+            motif_ids = [hit["motif_id"] for hit in motif_hits]
+            
+            bgc_index_entries.append({
+                "href": f"{bgc_id}.html",
+                "bgc_id": bgc_id,
+                "num_motifs": len(motif_ids),
+                "motif_ids": motif_ids
+            })
+        
+        # Generate motif reports
+        motif_dir.mkdir(parents=True, exist_ok=True)
+        motif_index_entries = []
+        
+        for idx, motif_id in enumerate(self.data.motifs.keys(), 1):
+            html_content = self.html_report_for_motif(
+                motif_id=motif_id,
+                gene_arrow_scaling=gene_arrow_scaling,
+                include_compound_plots=include_compound_plots,
+                include_motif_plots=include_motif_plots,
+                bgc_reports_base_url="../bgc_reports",
+            )
+            
+            output_file = motif_dir / f"{motif_id}.html"
+            with open(output_file, "w") as f:
+                f.write(html_content)
+            
+            motif_hits = self.data.motif2hits.get(motif_id, [])
+            bgc_ids = [hit["bgc_id"] for hit in motif_hits]
+            
+            motif_index_entries.append({
+                "href": f"{motif_id}.html",
+                "motif_id": motif_id,
+                "num_bgcs": len(bgc_ids),
+                "bgc_ids": bgc_ids
+            })
+            
+        # Generate master index
+        master_index_html = generate_master_index_html(
+            bgc_entries=bgc_index_entries,
+            motif_entries=motif_index_entries,
+            bgc_reports_url="bgc_reports",
+            motif_reports_url="motif_reports"
+        )
+        
+        master_index_path = output_dir / "index.html"
+        with open(master_index_path, "w") as f:
+            f.write(master_index_html)
