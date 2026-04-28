@@ -5,8 +5,14 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from importlib.resources import files
 from multiprocessing import Pool
+import logging
+
 from subsketch import io, loaders
 from subsketch.reports import generate_html_report_for_bgc, generate_html_for_motif
+from subsketch.reports import generate_master_index_html
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -131,14 +137,32 @@ class SubSketchSession:
 
         self.data: Optional[GlobalData] = None
 
-    def load(self) -> None:
-        """Load all data."""
+    def load(self, n_jobs: int = 1) -> None:
+        """Load all data.
+        
+        Args:
+            n_jobs: Number of parallel processes for loading GenBank files (default: 1)
+        """
+        
         # BGCs: {bgc_id: {"id", "cds_features", "length", "record", ...}}
-        bgcs: Dict[str, dict] = {}
-        for gbk_path in sorted(self.genbank_dir.glob("*.gbk")):
-            bgc = loaders.load_bgc(gbk_path)
-            bgcs[bgc["id"]] = bgc
-
+        gbk_paths = sorted(self.genbank_dir.glob("*.gbk"))
+        logger.info(f"Loading {len(gbk_paths)} GenBank files using {n_jobs} processes")
+        
+        if n_jobs == 1:
+            # Sequential (original behavior)
+            bgcs = {}
+            for gbk_path in gbk_paths:
+                bgc = loaders.load_bgc(gbk_path)
+                bgcs[bgc["id"]] = bgc
+        else:
+            # Parallel loading
+            with Pool(processes=n_jobs) as pool:
+                bgc_list = pool.map(loaders.load_bgc, gbk_paths)
+            bgcs = {bgc["id"]: bgc for bgc in bgc_list}
+        
+        logger.info(f"Loaded {len(bgcs)} BGCs")
+        
+        # Rest remains the same
         domain_hits = io.read_domain_hits(self.domain_hits_file)
         bgc2hits, motif2hits = io.read_detected_motifs(self.motif_hits_file)
         motifs = io.read_motifs(self.motifs_file)
@@ -249,11 +273,6 @@ class SubSketchSession:
             include_motif_plots: Whether to include motif plots
             n_jobs: Number of parallel processes (1 = sequential)
         """
-        from subsketch.reports import generate_master_index_html
-        import logging
-        
-        logger = logging.getLogger(__name__)
-        
         if self.data is None:
             raise RuntimeError("Session not loaded. Call .load() first.")
         
