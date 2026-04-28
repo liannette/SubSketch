@@ -73,7 +73,8 @@ def read_domain_hits(dom_hits_file):
                 }
             )
 
-    return all_domains
+    # Convert nested defaultdict to regular dict before returning (picklable)
+    return {bgc_id: dict(orfs) for bgc_id, orfs in all_domains.items()}
 
 
 def read_txt(infile_path: str) -> List[str]:
