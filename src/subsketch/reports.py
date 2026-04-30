@@ -1,9 +1,12 @@
+import textwrap
+import logging
+
 from subsketch.draw.bgc import draw_bgc, draw_subcluster_hit, draw_annotated_subcluster
 from subsketch.draw.motif import plot_subcluster_motif
 from subsketch.draw.molecule import draw_compounds, draw_compounds_with_substruct_flexible
-from subsketch.loaders import load_bgc
-from pathlib import Path
-import textwrap  # ADD THIS IMPORT
+
+
+logger = logging.getLogger(__name__)
 
 
 def _html_head():
@@ -154,7 +157,7 @@ def generate_html_report_for_bgc(
 def generate_html_for_motif(
     motif_id: str,
     motif_hits: list,
-    gbks_dirpath: str | Path,
+    bgcs: dict,
     domains: dict,
     domain_colors: dict,
     motifs: dict = {},
@@ -172,6 +175,11 @@ def generate_html_for_motif(
 
     for motif_hit in motif_hits:
         bgc_id = motif_hit['bgc_id']
+        if bgc_id not in bgcs:
+            logger.warning(f"BGC {bgc_id} referenced in motif {motif_id} but not found in loaded BGCs. Skipping.")
+            continue
+
+        bgc_data = bgcs[bgc_id]
 
         # Create title with optional link to BGC report
         if bgc_reports_base_url:
@@ -197,8 +205,9 @@ def generate_html_for_motif(
                 compounds_svg = draw_compounds(bgc_compounds)
                 html_content += f"<div>{compounds_svg}</div>"
 
-        bgc_data = load_bgc(Path(gbks_dirpath) / f"{bgc_id}.gbk")
+        bgc_data = bgcs[bgc_id]
         bgc_domains = domains.get(bgc_id, {})   
+        
         subcluster_svg = draw_subcluster_hit(
             bgc_data=bgc_data,
             motif_hit=motif_hit,

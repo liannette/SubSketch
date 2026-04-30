@@ -18,33 +18,27 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GlobalData:
     """All data loaded once for a dataset."""
-    bgcs: Dict[str, dict]
     domain_hits: Dict[str, Dict[int, List[dict]]]
     bgc2hits: Dict[str, List[dict]]
     motif2hits: Dict[str, List[dict]]
     motifs: Dict[str, Any]
-    compounds: Dict[str, List[tuple]]  # optional
+    compounds: Dict[str, List[tuple]]
     domain_colors: Dict[str, List[int]]
 
-
 def _generate_single_bgc_html(args):
-    """Worker function to generate a single BGC HTML report.
+    """Worker function to generate a single BGC HTML report."""
+    (bgc_id, bgc_data, global_data, bgc_dir, gene_arrow_scaling, 
+     include_compound_plots, include_motif_plots) = args
     
-    Receives all necessary data as arguments - no session loading needed.
-    """
-    (bgc_id, bgc_data, domain_hits, bgc2hits, motifs, compounds, 
-     domain_colors, bgc_dir, gene_arrow_scaling, include_compound_plots, 
-     include_motif_plots) = args
-    
-    motif_hits = bgc2hits.get(bgc_id, [])
+    motif_hits = global_data.bgc2hits.get(bgc_id, [])
     
     html_content = generate_html_report_for_bgc(
         bgc_data=bgc_data,
-        bgc_domains_hits=domain_hits.get(bgc_id, {}),
+        bgc_domains_hits=global_data.domain_hits.get(bgc_id, {}),
         bgc_detected_motifs=motif_hits,
-        compounds=compounds.get(bgc_id, []),
-        motifs=motifs,
-        domain_colors=domain_colors,
+        compounds=global_data.compounds.get(bgc_id, []),
+        motifs=global_data.motifs,
+        domain_colors=global_data.domain_colors,
         scaling=gene_arrow_scaling,
         include_title=True,
         include_motif_plots=include_motif_plots,
@@ -68,25 +62,20 @@ def _generate_single_bgc_html(args):
 
 
 def _generate_single_motif_html(args):
-    """Worker function to generate a single motif HTML report.
-    
-    Receives all necessary data as arguments - no session loading needed.
-    Note: BGC data is already loaded and passed in.
-    """
-    (motif_id, bgcs, domain_hits, motif2hits, motifs, compounds, 
-     domain_colors, motif_dir, genbank_dir, gene_arrow_scaling, 
+    """Worker function to generate a single motif HTML report."""
+    (motif_id, bgcs, global_data, motif_dir, gene_arrow_scaling, 
      include_compound_plots, include_motif_plots) = args
     
-    motif_hits = motif2hits.get(motif_id, [])
+    motif_hits = global_data.motif2hits.get(motif_id, [])
     
     html_content = generate_html_for_motif(
         motif_id=motif_id,
         motif_hits=motif_hits,
-        gbks_dirpath=genbank_dir,
-        domains=domain_hits,
-        domain_colors=domain_colors,
-        motifs=motifs,
-        compounds_info=compounds,
+        bgcs=bgcs,
+        domains=global_data.domain_hits,
+        domain_colors=global_data.domain_colors,
+        motifs=global_data.motifs,
+        compounds_info=global_data.compounds,
         scaling=gene_arrow_scaling,
         include_title=True,
         include_motif_plots=include_motif_plots,
@@ -109,12 +98,7 @@ def _generate_single_motif_html(args):
 
 
 class SubSketchSession:
-    """
-    High-level interface for SubSketch.
-
-    Load all input files once, then generate HTML reports
-    for individual BGCs by ID.
-    """
+    """High-level interface for SubSketch with lazy BGC loading."""
 
     def __init__(
         self,
@@ -136,33 +120,18 @@ class SubSketchSession:
             self.domain_colors_file = Path(files("subsketch").joinpath("data")).joinpath("domain_colors.txt")
 
         self.data: Optional[GlobalData] = None
+        self._bgc_cache: Dict[str, dict] = {}  # Single source of truth for BGCs
 
-    def load(self, n_jobs: int = 1) -> None:
+    def load(self, n_jobs: int = 1, load_bgcs_upfront: bool = False) -> None:
         """Load all data.
         
         Args:
             n_jobs: Number of parallel processes for loading GenBank files (default: 1)
+            load_bgcs_upfront: If True, load all GenBank files immediately; 
+                            if False, load on-demand (default: False)
         """
-        
-        # BGCs: {bgc_id: {"id", "cds_features", "length", "record", ...}}
-        gbk_paths = sorted(self.genbank_dir.glob("*.gbk"))
-        logger.info(f"Loading {len(gbk_paths)} GenBank files using {n_jobs} processes")
-        
-        if n_jobs == 1:
-            # Sequential (original behavior)
-            bgcs = {}
-            for gbk_path in gbk_paths:
-                bgc = loaders.load_bgc(gbk_path)
-                bgcs[bgc["id"]] = bgc
-        else:
-            # Parallel loading
-            with Pool(processes=n_jobs) as pool:
-                bgc_list = pool.map(loaders.load_bgc, gbk_paths)
-            bgcs = {bgc["id"]: bgc for bgc in bgc_list}
-        
-        logger.info(f"Loaded {len(bgcs)} BGCs")
-        
-        # Rest remains the same
+        # Load metadata files
+        logger.info("Loading metadata files...")
         domain_hits = io.read_domain_hits(self.domain_hits_file)
         bgc2hits, motif2hits = io.read_detected_motifs(self.motif_hits_file)
         motifs = io.read_motifs(self.motifs_file)
@@ -171,11 +140,11 @@ class SubSketchSession:
         domain_colors = loaders.load_domain_colors(self.domain_colors_file)
         new_colors = loaders.new_domain_colors(domain_hits, domain_colors)
         if new_colors:
+            logger.info(f"  Generating colors for {len(new_colors)} new protein domains")
             domain_colors.update(new_colors)
             io.write_domain_colors(domain_colors, self.domain_colors_file)
 
         self.data = GlobalData(
-            bgcs=bgcs,
             domain_hits=domain_hits,
             bgc2hits=bgc2hits,
             motif2hits=motif2hits,
@@ -184,11 +153,80 @@ class SubSketchSession:
             domain_colors=domain_colors,
         )
 
-    def list_bgcs(self) -> List[str]:
-        """Return all BGC IDs available in this session."""
+        if load_bgcs_upfront:
+            # Load all BGCs upfront into cache
+            gbk_paths = sorted(self.genbank_dir.glob("*.gbk"))
+            logger.info(f"Loading {len(gbk_paths)} GenBank files using {n_jobs} processes")
+            
+            if n_jobs == 1:
+                self._bgc_cache = {}
+                for i, gbk_path in enumerate(gbk_paths, 1):
+                    if i % 1000 == 0:
+                        logger.info(f"  Loaded {i}/{len(gbk_paths)} BGCs...")
+                    bgc = loaders.load_bgc(gbk_path)
+                    self._bgc_cache[bgc["id"]] = bgc
+            else:
+                with Pool(processes=n_jobs) as pool:
+                    bgc_list = pool.map(loaders.load_bgc, gbk_paths)
+                self._bgc_cache = {bgc["id"]: bgc for bgc in bgc_list}
+            
+            logger.info(f"Loaded {len(self._bgc_cache)} BGCs")
+        else:
+            logger.info("Lazy loading mode: BGCs will be loaded on-demand as needed")
+            self._bgc_cache = {}
+
+    def _get_bgc(self, bgc_id: str) -> dict:
+        """Get BGC data, loading from disk if necessary."""
+        if bgc_id in self._bgc_cache:
+            return self._bgc_cache[bgc_id]
+        
+        # Load from disk
+        gbk_path = self.genbank_dir / f"{bgc_id}.gbk"
+        if not gbk_path.exists():
+            raise KeyError(f"BGC GenBank file not found: {gbk_path}")
+        
+        logger.debug(f"Lazy loading BGC: {bgc_id}")
+        bgc_data = loaders.load_bgc(gbk_path)
+        self._bgc_cache[bgc_id] = bgc_data
+        return bgc_data
+
+    def _get_multiple_bgcs(self, bgc_ids: List[str], n_jobs: int = 1) -> Dict[str, dict]:
+        """Get multiple BGCs efficiently, loading only what's needed."""
+        # Separate cached from uncached
+        result = {}
+        to_load = []
+        
+        for bgc_id in bgc_ids:
+            if bgc_id in self._bgc_cache:
+                result[bgc_id] = self._bgc_cache[bgc_id]
+            else:
+                to_load.append(bgc_id)
+        
+        if to_load:
+            logger.info(f"Loading {len(to_load)} BGCs on-demand...")
+            gbk_paths = [self.genbank_dir / f"{bgc_id}.gbk" for bgc_id in to_load]
+            
+            if n_jobs == 1:
+                for gbk_path in gbk_paths:
+                    bgc = loaders.load_bgc(gbk_path)
+                    result[bgc["id"]] = bgc
+                    self._bgc_cache[bgc["id"]] = bgc
+            else:
+                with Pool(processes=n_jobs) as pool:
+                    bgc_list = pool.map(loaders.load_bgc, gbk_paths)
+                for bgc in bgc_list:
+                    result[bgc["id"]] = bgc
+                    self._bgc_cache[bgc["id"]] = bgc
+        
+        return result
+
+    def list_genbanks(self) -> List[str]:
+        """Return all genbanks available in the BGC input dir."""
         if self.data is None:
             raise RuntimeError("Session not loaded. Call .load() first.")
-        return sorted(self.data.bgcs.keys())
+        
+        # Return all available BGC IDs (from files)
+        return sorted([p.stem for p in self.genbank_dir.glob("*.gbk")])
 
     def html_report_for_bgc(
         self,
@@ -203,10 +241,8 @@ class SubSketchSession:
         """Generate an HTML report for a single BGC ID."""
         if self.data is None:
             raise RuntimeError("Session not loaded. Call .load() first.")
-        if bgc_id not in self.data.bgcs:
-            raise KeyError(f"BGC ID not found in session: {bgc_id}")
-
-        bgc_data = self.data.bgcs[bgc_id]
+        
+        bgc_data = self._get_bgc(bgc_id)
         motif_hits = self.data.bgc2hits.get(bgc_id, [])
 
         return generate_html_report_for_bgc(
@@ -240,11 +276,15 @@ class SubSketchSession:
             raise KeyError(f"Motif ID not found in session: {motif_id}")
 
         motif_hits = self.data.motif2hits.get(motif_id, [])
+        
+        # Load only the BGCs needed for this motif
+        bgc_ids = [hit["bgc_id"] for hit in motif_hits]
+        bgcs = self._get_multiple_bgcs(bgc_ids, n_jobs=1)
 
         return generate_html_for_motif(
             motif_id=motif_id,
             motif_hits=motif_hits,
-            gbks_dirpath=self.genbank_dir,
+            bgcs=bgcs,
             domains=self.data.domain_hits,
             domain_colors=self.data.domain_colors,
             motifs=self.data.motifs,
@@ -262,7 +302,7 @@ class SubSketchSession:
         gene_arrow_scaling: int = 60,
         include_compound_plots: bool = True,
         include_motif_plots: bool = True,
-        n_jobs: int = 1,  # Add parallelization parameter
+        n_jobs: int = 1,
     ) -> None:
         """Generate all reports (BGC, Motif) with a master index page.
         
@@ -285,110 +325,88 @@ class SubSketchSession:
         bgc_dir.mkdir(parents=True, exist_ok=True)
         motif_dir.mkdir(parents=True, exist_ok=True)
         
-        # Generate BGC reports
-        bgc_ids = list(self.data.bgcs.keys())
-        logger.info(f"Generating {len(bgc_ids)} BGC reports using {n_jobs} processes")
+        # Get all BGC IDs
+        all_bgc_ids = self.list_genbanks()
         
-        if n_jobs == 1:
-            # Sequential processing (original behavior)
-            bgc_index_entries = []
-            for idx, bgc_id in enumerate(bgc_ids, 1):
-                html_content = self.html_report_for_bgc(
-                    bgc_id=bgc_id,
-                    gene_arrow_scaling=gene_arrow_scaling,
-                    include_compound_plots=include_compound_plots,
-                    include_motif_plots=include_motif_plots,
-                    motif_reports_base_url="../motif_reports",
-                )
-                
-                output_file = bgc_dir / f"{bgc_id}.html"
-                with open(output_file, "w") as f:
-                    f.write(html_content)
-                
-                motif_hits = self.data.bgc2hits.get(bgc_id, [])
-                motif_ids = [hit["motif_id"] for hit in motif_hits]
-                
-                bgc_index_entries.append({
-                    "href": f"{bgc_id}.html",
-                    "bgc_id": bgc_id,
-                    "num_motifs": len(motif_ids),
-                    "motif_ids": motif_ids
-                })
-        else:
-            # Parallel processing - prepare arguments for each BGC
+        # Check for parallel mode with incomplete loading
+        if n_jobs > 1 and len(self._bgc_cache) < len(all_bgc_ids):
+            logger.error(
+                f"Parallel processing requires all GenBank files loaded. "
+                f"Currently: {len(self._bgc_cache)}/{len(all_bgc_ids)} BGCs. "
+                f"Use n_jobs=1 or reload with load_bgcs_upfront=True")
+            raise RuntimeError(
+                f"Cannot use parallel processing (n_jobs={n_jobs}) without "
+                f"preloading all BGCs. Either set n_jobs=1 or reload session "
+                f"with load_bgcs_upfront=True."
+            )
+        use_parallel = (n_jobs > 1)
+
+        # ========================================
+        # Generate BGC reports
+        # ========================================
+        logger.info(f"Generating {len(all_bgc_ids)} BGC reports using {n_jobs} processes")
+
+        if use_parallel:
             bgc_args = [
-                (
-                    bgc_id,
-                    self.data.bgcs[bgc_id],
-                    self.data.domain_hits,
-                    self.data.bgc2hits,
-                    self.data.motifs,
-                    self.data.compounds,
-                    self.data.domain_colors,
-                    bgc_dir,
-                    gene_arrow_scaling,
-                    include_compound_plots,
-                    include_motif_plots,
-                )
-                for bgc_id in bgc_ids
+                (bgc_id, self._bgc_cache[bgc_id], self.data, bgc_dir, 
+                gene_arrow_scaling, include_compound_plots, include_motif_plots)
+                for bgc_id in all_bgc_ids
             ]
             
             with Pool(processes=n_jobs) as pool:
                 bgc_index_entries = pool.map(_generate_single_bgc_html, bgc_args)
-        
+            
+            logger.info(f"Generated {len(bgc_index_entries)} BGC reports")
+
+        else:
+            bgc_index_entries = []
+            for idx, bgc_id in enumerate(all_bgc_ids, 1):
+                if idx % 100 == 0:
+                    logger.info(f"BGC reports progress: {idx}/{len(all_bgc_ids)}")
+                
+                args = (bgc_id, self._get_bgc(bgc_id), self.data, bgc_dir,
+                        gene_arrow_scaling, include_compound_plots, include_motif_plots)
+                bgc_index_entries.append(_generate_single_bgc_html(args))
+            
+            logger.info(f"Generated {len(bgc_index_entries)} BGC reports")
+
+
+        # ========================================
         # Generate motif reports
+        # ========================================
         motif_ids = list(self.data.motifs.keys())
         logger.info(f"Generating {len(motif_ids)} motif reports using {n_jobs} processes")
         
-        if n_jobs == 1:
-            # Sequential processing (original behavior)
-            motif_index_entries = []
-            for idx, motif_id in enumerate(motif_ids, 1):
-                html_content = self.html_report_for_motif(
-                    motif_id=motif_id,
-                    gene_arrow_scaling=gene_arrow_scaling,
-                    include_compound_plots=include_compound_plots,
-                    include_motif_plots=include_motif_plots,
-                    bgc_reports_base_url="../bgc_reports",
-                )
-                
-                output_file = motif_dir / f"{motif_id}.html"
-                with open(output_file, "w") as f:
-                    f.write(html_content)
-                
-                motif_hits = self.data.motif2hits.get(motif_id, [])
-                bgc_ids_for_motif = [hit["bgc_id"] for hit in motif_hits]
-                
-                motif_index_entries.append({
-                    "href": f"{motif_id}.html",
-                    "motif_id": motif_id,
-                    "num_bgcs": len(bgc_ids_for_motif),
-                    "bgc_ids": bgc_ids_for_motif
-                })
-        else:
-            # Parallel processing - prepare arguments for each motif
+        if use_parallel:
             motif_args = [
-                (
-                    motif_id,
-                    self.data.bgcs,  # Pass all BGCs since motif reports may need any of them
-                    self.data.domain_hits,
-                    self.data.motif2hits,
-                    self.data.motifs,
-                    self.data.compounds,
-                    self.data.domain_colors,
-                    motif_dir,
-                    self.genbank_dir,
-                    gene_arrow_scaling,
-                    include_compound_plots,
-                    include_motif_plots,
-                )
+                (motif_id, self._bgc_cache, self.data, motif_dir,
+                gene_arrow_scaling, include_compound_plots, include_motif_plots)
                 for motif_id in motif_ids
             ]
             
             with Pool(processes=n_jobs) as pool:
                 motif_index_entries = pool.map(_generate_single_motif_html, motif_args)
             
+            logger.info(f"Generated {len(motif_index_entries)} motif reports")
+        else:
+            motif_index_entries = []
+            for idx, motif_id in enumerate(motif_ids, 1):
+                if idx % 100 == 0:
+                    logger.info(f"Motif reports progress: {idx}/{len(motif_ids)}")
+                
+                motif_hits = self.data.motif2hits.get(motif_id, [])
+                bgc_ids_needed = [hit["bgc_id"] for hit in motif_hits]
+                bgcs_for_motif = self._get_multiple_bgcs(bgc_ids_needed, n_jobs=1)
+                
+                args = (motif_id, bgcs_for_motif, self.data, motif_dir,
+                        gene_arrow_scaling, include_compound_plots, include_motif_plots)
+                motif_index_entries.append(_generate_single_motif_html(args))
+            
+            logger.info(f"Generated {len(motif_index_entries)} motif reports")
+
+        # ========================================
         # Generate master index
+        # ========================================
         logger.info("Generating master index")
         master_index_html = generate_master_index_html(
             bgc_entries=bgc_index_entries,
