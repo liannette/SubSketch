@@ -313,8 +313,13 @@ class SubSketchSession:
             include_motif_plots: Whether to include motif plots
             n_jobs: Number of parallel processes (1 = sequential)
         """
+        logger.info(
+            f"Generating report for {num_bgcs} BGCs and {num_motifs} motifs "
+            f"unsing {n_jobs} processes"
+            )
+
         if self.data is None:
-            raise RuntimeError("Session not loaded. Call .load() first.")
+            raise RuntimeError("SubSketch Session not loaded. Call .load() first.")
         
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -344,50 +349,63 @@ class SubSketchSession:
         # ========================================
         # Generate BGC reports
         # ========================================
-        logger.info(f"Generating {len(all_bgc_ids)} BGC reports using {n_jobs} processes")
-
         if use_parallel:
             bgc_args = [
                 (bgc_id, self._bgc_cache[bgc_id], self.data, bgc_dir, 
                 gene_arrow_scaling, include_compound_plots, include_motif_plots)
                 for bgc_id in all_bgc_ids
             ]
-            
+
             with Pool(processes=n_jobs) as pool:
-                bgc_index_entries = pool.map(_generate_single_bgc_html, bgc_args)
-            
-            logger.info(f"Generated {len(bgc_index_entries)} BGC reports")
+                bgc_index_entries = []
+                for idx, result in enumerate(pool.imap_unordered(
+                    _generate_single_bgc_html, bgc_args, chunksize=50), 1):
+                    if idx % 1000 == 0:
+                        logger.info(f"BGC reports progress: {idx}/{len(all_bgc_ids)}")
+                    bgc_index_entries.append(result)
 
         else:
             bgc_index_entries = []
             for idx, bgc_id in enumerate(all_bgc_ids, 1):
-                if idx % 100 == 0:
+                if idx % 1000 == 0:
                     logger.info(f"BGC reports progress: {idx}/{len(all_bgc_ids)}")
                 
                 args = (bgc_id, self._get_bgc(bgc_id), self.data, bgc_dir,
                         gene_arrow_scaling, include_compound_plots, include_motif_plots)
                 bgc_index_entries.append(_generate_single_bgc_html(args))
             
-            logger.info(f"Generated {len(bgc_index_entries)} BGC reports")
+        logger.info(f"Generated {len(bgc_index_entries)} BGC reports")
 
 
         # ========================================
         # Generate motif reports
         # ========================================
         motif_ids = list(self.data.motifs.keys())
-        logger.info(f"Generating {len(motif_ids)} motif reports using {n_jobs} processes")
-        
+
         if use_parallel:
-            motif_args = [
-                (motif_id, self._bgc_cache, self.data, motif_dir,
-                gene_arrow_scaling, include_compound_plots, include_motif_plots)
-                for motif_id in motif_ids
-            ]
+            motif_args = []
+            for motif_id in motif_ids:
+                motif_hits = self.data.motif2hits.get(motif_id, [])
+                bgc_ids_needed = [hit["bgc_id"] for hit in motif_hits]
+                bgcs_subset = {bid: self._bgc_cache[bid] for bid in bgc_ids_needed}
+                motif_args.append((
+                    motif_id, 
+                    bgcs_subset, 
+                    self.data, 
+                    motif_dir,
+                    gene_arrow_scaling,
+                    include_compound_plots,
+                    include_motif_plots
+                ))
             
             with Pool(processes=n_jobs) as pool:
-                motif_index_entries = pool.map(_generate_single_motif_html, motif_args)
-            
-            logger.info(f"Generated {len(motif_index_entries)} motif reports")
+                motif_index_entries = []
+                for idx, result in enumerate(pool.imap_unordered(
+                    _generate_single_motif_html, motif_args, chunksize=50), 1):
+                    if idx % 1000 == 0:
+                        logger.info(f"Motif reports progress: {idx}/{len(motif_ids)}")
+                    motif_index_entries.append(result)
+
         else:
             motif_index_entries = []
             for idx, motif_id in enumerate(motif_ids, 1):
@@ -396,18 +414,18 @@ class SubSketchSession:
                 
                 motif_hits = self.data.motif2hits.get(motif_id, [])
                 bgc_ids_needed = [hit["bgc_id"] for hit in motif_hits]
-                bgcs_for_motif = self._get_multiple_bgcs(bgc_ids_needed, n_jobs=1)
+                bgcs_subset = self._get_multiple_bgcs(bgc_ids_needed, n_jobs=1)
                 
-                args = (motif_id, bgcs_for_motif, self.data, motif_dir,
+                args = (motif_id, bgcs_subset, self.data, motif_dir,
                         gene_arrow_scaling, include_compound_plots, include_motif_plots)
                 motif_index_entries.append(_generate_single_motif_html(args))
             
-            logger.info(f"Generated {len(motif_index_entries)} motif reports")
+        logger.info(f"Generated {len(motif_index_entries)} motif reports")
 
         # ========================================
         # Generate master index
         # ========================================
-        logger.info("Generating master index")
+        logger.info("Generating master index...")
         master_index_html = generate_master_index_html(
             bgc_entries=bgc_index_entries,
             motif_entries=motif_index_entries,
