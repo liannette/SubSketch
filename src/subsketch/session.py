@@ -313,26 +313,22 @@ class SubSketchSession:
             include_motif_plots: Whether to include motif plots
             n_jobs: Number of parallel processes (1 = sequential)
         """
-        logger.info(
-            f"Generating report for {num_bgcs} BGCs and {num_motifs} motifs "
-            f"unsing {n_jobs} processes"
-            )
-
         if self.data is None:
             raise RuntimeError("SubSketch Session not loaded. Call .load() first.")
+
+        all_bgc_ids = self.list_genbanks()
+        motif_ids = list(self.data.motifs.keys())
+
+        logger.info(
+            f"Generating report for {len(all_bgc_ids)} BGCs and {len(motif_ids)} motifs "
+            f"unsing {n_jobs} processes"
+            )
         
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Define subdirectories
-        bgc_dir = output_dir / "bgc_reports"
-        motif_dir = output_dir / "motif_reports"
+        bgc_dir = Path(output_dir) / "bgc_reports"
+        motif_dir = Path(output_dir) / "motif_reports"
         bgc_dir.mkdir(parents=True, exist_ok=True)
         motif_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Get all BGC IDs
-        all_bgc_ids = self.list_genbanks()
-        
+
         # Check for parallel mode with incomplete loading
         if n_jobs > 1 and len(self._bgc_cache) < len(all_bgc_ids):
             logger.error(
@@ -380,8 +376,6 @@ class SubSketchSession:
         # ========================================
         # Generate motif reports
         # ========================================
-        motif_ids = list(self.data.motifs.keys())
-
         if use_parallel:
             motif_args = []
             for motif_id in motif_ids:
